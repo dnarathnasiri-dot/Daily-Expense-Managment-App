@@ -1,36 +1,25 @@
 <?php
-// handlers/settings/export.php
-// GET /api/settings/export?token=...
-// Downloads CSV of all user expenses.
-// Note: token is passed as ?token= because window.open() can't set headers.
+include "config.php";
 
-$uid = requireAuth($conn);  // requireAuth() also checks $_GET['token']
+$user_id = $_GET['user_id'] ?? 0;
 
-// Override Content-Type set by cors.php
-header('Content-Type: text/csv; charset=UTF-8');
-header('Content-Disposition: attachment; filename="expenses_' . date('Y-m-d') . '.csv"');
+header('Content-Type: text/csv');
+header('Content-Disposition: attachment; filename="expenses.csv"');
 
-$stmt = $conn->prepare(
-    "SELECT e.date, e.description, c.name AS category, e.amount
-     FROM expenses e
-     JOIN categories c ON e.category_id = c.id
-     WHERE e.user_id = ?
-     ORDER BY e.date DESC"
-);
-$stmt->bind_param('i', $uid);
-$stmt->execute();
+$output = fopen("php://output", "w");
 
-$out = fopen('php://output', 'w');
-fputcsv($out, ['Date', 'Description', 'Category', 'Amount']);
+fputcsv($output, ["Amount", "Date", "Description"]);
 
-while ($row = $stmt->get_result()->fetch_assoc()) {
-    fputcsv($out, [
-        $row['date'],
-        $row['description'],
-        $row['category'],
-        number_format((float)$row['amount'], 2, '.', ''),
-    ]);
+$query = "SELECT amount, expense_date, description 
+          FROM expenses 
+          WHERE user_id='$user_id'";
+
+$result = mysqli_query($conn, $query);
+
+while ($row = mysqli_fetch_assoc($result)) {
+    fputcsv($output, $row);
 }
 
-fclose($out);
+fclose($output);
 exit;
+?>

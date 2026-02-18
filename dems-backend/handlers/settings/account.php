@@ -1,12 +1,15 @@
 <?php
-// handlers/settings/account.php
-// DELETE /api/settings/account
+include "config.php";
+include "response.php";
 
-$uid  = requireAuth($conn);
+$user_id = $_GET['user_id'] ?? 0;
 
-// Delete user — cascade deletes expenses + tokens via FK
-$stmt = $conn->prepare("DELETE FROM users WHERE id = ?");
-$stmt->bind_param('i', $uid);
-$stmt->execute();
+$query = "SELECT name, email 
+          FROM users 
+          WHERE user_id='$user_id'";
 
-jsonOk(['success' => true, 'message' => 'Account deleted.']);
+$result = mysqli_query($conn, $query);
+$user = mysqli_fetch_assoc($result);
+
+jsonResponse(true, "Account Info", $user);
+?>
