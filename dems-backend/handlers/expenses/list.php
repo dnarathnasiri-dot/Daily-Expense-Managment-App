@@ -1,42 +1,43 @@
 <?php
-// handlers/expenses/list.php
-// GET /api/expenses?search=
-// Returns: array of expense objects
+require_once __DIR__ . '/../../includes/auth.php';
+require_once __DIR__ . '/../../includes/db.php';
+require_once __DIR__ . '/../../includes/response.php';
 
-$uid    = requireAuth($conn);
-$search = trim($_GET['search'] ?? '');
+$userId  = requireAuth();
+$db      = getDB();
+$search  = trim($_GET['search']   ?? '');
+$category= trim($_GET['category'] ?? '');
+$from    = trim($_GET['from']     ?? '');
+$to      = trim($_GET['to']       ?? '');
+$page    = max(1, (int)($_GET['page'] ?? 1));
+$perPage = 20;
+$offset  = ($page - 1) * $perPage;
 
-if ($search) {
-    $like = "%$search%";
-    $stmt = $conn->prepare(
-        "SELECT e.id, e.amount, e.date, e.description, c.name AS category
-         FROM expenses e
-         JOIN categories c ON e.category_id = c.id
-         WHERE e.user_id = ?
-           AND (e.description LIKE ? OR c.name LIKE ?)
-         ORDER BY e.date DESC, e.id DESC"
-    );
-    $stmt->bind_param('iss', $uid, $like, $like);
-} else {
-    $stmt = $conn->prepare(
-        "SELECT e.id, e.amount, e.date, e.description, c.name AS category
-         FROM expenses e
-         JOIN categories c ON e.category_id = c.id
-         WHERE e.user_id = ?
-         ORDER BY e.date DESC, e.id DESC"
-    );
-    $stmt->bind_param('i', $uid);
-}
+$where = ['user_id = ?']; $types = 'i'; $params = [$userId];
 
+if ($search)   { $where[] = '(description LIKE ? OR category LIKE ?)'; $types .= 'ss'; $like = "%$search%"; $params[] = $like; $params[] = $like; }
+if ($category) { $where[] = 'category = ?'; $types .= 's'; $params[] = $category; }
+if ($from)     { $where[] = 'date >= ?';    $types .= 's'; $params[] = $from; }
+if ($to)       { $where[] = 'date <= ?';    $types .= 's'; $params[] = $to; }
+
+$w = 'WHERE ' . implode(' AND ', $where);
+
+$cs = $db->prepare("SELECT COUNT(*) AS cnt FROM expenses $w");
+$cs->bind_param($types, ...$params);
+$cs->execute();
+$total = (int)$cs->get_result()->fetch_assoc()['cnt'];
+$cs->close();
+
+$types .= 'ii'; $params[] = $perPage; $params[] = $offset;
+$stmt = $db->prepare("SELECT id,amount,date,description,category FROM expenses $w ORDER BY date DESC,id DESC LIMIT ? OFFSET ?");
+$stmt->bind_param($types, ...$params);
 $stmt->execute();
-$rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$result = $stmt->get_result();
+$expenses = [];
+while ($row = $result->fetch_assoc()) {
+    $row['id'] = (int)$row['id']; $row['amount'] = (float)$row['amount'];
+    $expenses[] = $row;
+}
+$stmt->close(); $db->close();
 
-$expenses = array_map(fn($r) => [
-    'id'          => (int)   $r['id'],
-    'amount'      => (float) $r['amount'],
-    'date'        => $r['date'],
-    'description' => $r['description'],
-    'category'    => $r['category'],
-], $rows);
-
-jsonOk($expenses);
+jsonOk(['data' => $expenses, 'total' => $total, 'page' => $page, 'per_page' => $perPage, 'last_page' => (int)ceil($total / $perPage)]);
