@@ -1,27 +1,25 @@
 <?php
-// handlers/reports/category.php
-// GET /api/reports/category
-// Returns: [{ category: "Food", total: 0.00 }, ...]
+require_once __DIR__ . '/../../includes/auth.php';
+require_once __DIR__ . '/../../includes/db.php';
+require_once __DIR__ . '/../../includes/response.php';
 
-$uid = requireAuth($conn);
+$userId = requireAuth();
+$month  = $_GET['month'] ?? date('Y-m');
+$db     = getDB();
 
-$stmt = $conn->prepare(
-    "SELECT c.name AS category, SUM(e.amount) AS total
-     FROM expenses e
-     JOIN categories c ON e.category_id = c.id
-     WHERE e.user_id = ?
-     GROUP BY c.id
-     ORDER BY total DESC"
-);
-$stmt->bind_param('i', $uid);
+$stmt = $db->prepare("SELECT category, COALESCE(SUM(amount),0) AS total, COUNT(*) AS transactions FROM expenses WHERE user_id=? AND DATE_FORMAT(date,'%Y-%m')=? GROUP BY category ORDER BY total DESC");
+$stmt->bind_param('is', $userId, $month);
 $stmt->execute();
+$result = $stmt->get_result();
+$data = []; $grandTotal = 0;
+while ($row = $result->fetch_assoc()) {
+    $grandTotal += (float)$row['total'];
+    $data[] = ['category' => $row['category'], 'total' => (float)$row['total'], 'transactions' => (int)$row['transactions']];
+}
+$stmt->close(); $db->close();
 
-$result = [];
-while ($row = $stmt->get_result()->fetch_assoc()) {
-    $result[] = [
-        'category' => $row['category'],
-        'total'    => (float) $row['total'],
-    ];
+foreach ($data as &$row) {
+    $row['percentage'] = $grandTotal > 0 ? round(($row['total'] / $grandTotal) * 100, 1) : 0;
 }
 
-jsonOk($result);
+jsonOk(['month' => $month, 'grand_total' => $grandTotal, 'data' => $data]);
