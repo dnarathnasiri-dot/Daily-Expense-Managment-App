@@ -1,16 +1,16 @@
 <?php
-// handlers/auth/logout.php
-// POST /api/logout
-// Deletes the current Bearer token from DB.
+require_once __DIR__ . '/../../includes/db.php';
+require_once __DIR__ . '/../../includes/response.php';
 
-$token = getBearerToken();
+$headers    = getallheaders();
+$authHeader = $headers['Authorization'] ?? $headers['authorization'] ?? '';
+$token      = str_starts_with($authHeader, 'Bearer ') ? trim(substr($authHeader, 7)) : null;
 
 if ($token) {
-    $stmt = $conn->prepare(
-        "DELETE FROM personal_access_tokens WHERE token = ?"
-    );
+    $db   = getDB();
+    $stmt = $db->prepare('DELETE FROM personal_access_tokens WHERE token = ?');
     $stmt->bind_param('s', $token);
     $stmt->execute();
+    $stmt->close();
+    $db->close();
 }
-
-jsonOk(['success' => true, 'message' => 'Logged out successfully.']);
