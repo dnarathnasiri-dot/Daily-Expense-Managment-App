@@ -1,48 +1,25 @@
 <?php
-// handlers/expenses/create.php
-// POST /api/expenses
-// Body: { amount, category, date, description }
-// Returns: the created expense object
+require_once __DIR__ . '/../../includes/auth.php';
+require_once __DIR__ . '/../../includes/db.php';
+require_once __DIR__ . '/../../includes/response.php';
 
-$uid  = requireAuth($conn);
-$body = getBody();
+$userId      = requireAuth();
+$body        = getBody();
+$amount      = $body['amount']      ?? null;
+$description = trim($body['description'] ?? '');
+$category    = trim($body['category']    ?? 'Other');
+$date        = trim($body['date']        ?? date('Y-m-d'));
 
-$amount   = isset($body['amount']) ? (float) $body['amount'] : 0;
-$category = trim($body['category']    ?? '');
-$date     = trim($body['date']        ?? '');
-$desc     = trim($body['description'] ?? '');
+if (!$amount || !is_numeric($amount) || (float)$amount <= 0) jsonError('Valid amount required.');
+if (!$description) jsonError('Description is required.');
+if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) jsonError('Date must be YYYY-MM-DD.');
 
-// Validate
-$errors = [];
-if ($amount <= 0)  $errors['amount'][]   = 'Amount must be greater than 0.';
-if (!$category)    $errors['category'][] = 'Category is required.';
-if (!$date)        $errors['date'][]     = 'Date is required.';
+$amount = round((float)$amount, 2);
+$db     = getDB();
+$stmt   = $db->prepare('INSERT INTO expenses (user_id,amount,description,category,date) VALUES (?,?,?,?,?)');
+$stmt->bind_param('idsss', $userId, $amount, $description, $category, $date);
+$stmt->execute();
+$id = $stmt->insert_id;
+$stmt->close(); $db->close();
 
-if ($errors) jsonError('Validation failed.', 422, $errors);
-
-// Resolve category name → category_id
-$cat = $conn->prepare("SELECT id FROM categories WHERE name = ?");
-$cat->bind_param('s', $category);
-$cat->execute();
-$catRow = $cat->get_result()->fetch_assoc();
-
-if (!$catRow) jsonError("Unknown category: $category", 422);
-$catId = $catRow['id'];
-
-// Insert
-$ins = $conn->prepare(
-    "INSERT INTO expenses (user_id, amount, category_id, date, description)
-     VALUES (?, ?, ?, ?, ?)"
-);
-$ins->bind_param('idiss', $uid, $amount, $catId, $date, $desc);
-$ins->execute();
-
-$newId = $conn->insert_id;
-
-jsonOk([
-    'id'          => $newId,
-    'amount'      => $amount,
-    'category'    => $category,
-    'date'        => $date,
-    'description' => $desc,
-], 201);
+jsonOk(['id' => $id, 'amount' => $amount, 'description' => $description, 'category' => $category, 'date' => $date], 201);
