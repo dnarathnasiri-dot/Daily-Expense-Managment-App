@@ -1,39 +1,20 @@
 <?php
-// handlers/reports/daily.php
-// GET /api/reports/daily?days=7
-// Returns: [{ day: "YYYY-MM-DD", total: 0.00 }, ...]
-// Fills in zeros for days with no expenses.
+require_once __DIR__ . '/../../includes/auth.php';
+require_once __DIR__ . '/../../includes/db.php';
+require_once __DIR__ . '/../../includes/response.php';
 
-$uid  = requireAuth($conn);
-$days = max(1, min(90, (int) ($_GET['days'] ?? 7)));
+$userId = requireAuth();
+$days   = max(1, min(365, (int)($_GET['days'] ?? 7)));
+$db     = getDB();
 
-// Generate date range
-$dateRange = [];
-for ($i = $days - 1; $i >= 0; $i--) {
-    $d             = date('Y-m-d', strtotime("-$i days"));
-    $dateRange[$d] = 0.0;
-}
-
-// Query actual data
-$start = array_key_first($dateRange);
-$end   = array_key_last($dateRange);
-
-$stmt = $conn->prepare(
-    "SELECT date, SUM(amount) AS total
-     FROM expenses
-     WHERE user_id = ? AND date BETWEEN ? AND ?
-     GROUP BY date"
-);
-$stmt->bind_param('iss', $uid, $start, $end);
+$stmt = $db->prepare("SELECT date, COALESCE(SUM(amount),0) AS total, COUNT(*) AS transactions FROM expenses WHERE user_id=? AND date >= DATE_SUB(CURDATE(), INTERVAL ? DAY) GROUP BY date ORDER BY date ASC");
+$stmt->bind_param('ii', $userId, $days);
 $stmt->execute();
-$res = $stmt->get_result();
-while ($row = $res->fetch_assoc()) {
-    $dateRange[$row['date']] = (float) $row['total'];
+$result = $stmt->get_result();
+$data = [];
+while ($row = $result->fetch_assoc()) {
+    $data[] = ['date' => $row['date'], 'total' => (float)$row['total'], 'transactions' => (int)$row['transactions']];
 }
+$stmt->close(); $db->close();
 
-$result = [];
-foreach ($dateRange as $day => $total) {
-    $result[] = ['day' => $day, 'total' => $total];
-}
-
-jsonOk($result);
+jsonOk(['days' => $days, 'data' => $data]);
